@@ -132,6 +132,7 @@
 })();
 
 const CONFIG = {
+  quiz_weight: 1.7,
   alpha: 0.78,
   beta: 0.18,
   type_to_wuxing: {"Normal":"Earth","Fire":"Fire","Water":"Water","Grass":"Wood","Electric":"Fire","Ice":"Water","Fighting":"Fire","Poison":"Metal","Ground":"Earth","Flying":"Wood","Psychic":"Fire","Bug":"Wood","Rock":"Earth","Ghost":"Water","Dragon":"Metal","Dark":"Water","Steel":"Metal","Fairy":"Wood"},
@@ -607,7 +608,10 @@ document.getElementById("calcBtn").addEventListener("click", () => {
     return;
   }
 
-  const quizArchScore = scoreArchetypes(ans);
+  const quizArchScoreRaw = scoreArchetypes(ans);
+  // Strengthen quiz influence (answers) vs. bazi
+  const quizArchScore = {};
+  for (const [k,v] of Object.entries(quizArchScoreRaw)) { quizArchScore[k] = v * (CONFIG.quiz_weight || 1.0); }
   const top2 = topN(quizArchScore, 2);
   const top1 = top2[0]?.[0] || null;
   const top2k = top2[1]?.[0] || null;
