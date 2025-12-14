@@ -381,60 +381,59 @@ function renderWuxing(wuxingScore) {
   }).join("");
 }
 
-function scoreAndRankCandidates(primaryType, secondaryFinalTitle, top1, top2k, domWx, wantedArc, mode) {
+function scoreAndRankCandidates(primaryType, secondaryFixedTitle, top1, top2k, domWx, wantedArc, mode) {
   // mode: "dual" or "pure"
   const pool = POOLS[primaryType] || [];
   const tagsDefault = CONFIG.type_to_default_archetype_tags[primaryType] || [];
   const typeWx = CONFIG.type_to_wuxing[primaryType] || null;
 
-  const secWantedLower = secondaryFinalTitle ? secondaryFinalTitle.toLowerCase() : null;
+  const secFixedLower = secondaryFixedTitle ? secondaryFixedTitle.toLowerCase() : null;
 
   const scored = [];
   for (let idx=0; idx<pool.length; idx++) {
     const [pid, identifier, zh] = pool[idx];
-    // Enforce: candidate's BASE primary type must equal selected primaryType (day-pillar anchored)
-    const bt = BASE_TO_BASE_TYPES[identifier];
-    if (!bt || !bt.length) continue;
-    if (toTitle(bt[0]) !== primaryType) continue;
+
+    // ===== Hard constraints first =====
     if (mode === "pure") {
       // pure mode: base itself must be mono-type and equal to primaryType
       if (!BASE_IS_MONO[identifier]) continue;
       const bt = BASE_TO_BASE_TYPES[identifier] || [];
       if (bt.length !== 1) continue;
       if (toTitle(bt[0]) !== primaryType) continue;
+    } else {
+      // dual mode: do NOT change secondary; only accept candidates whose evolution chain can reach secondaryFixed
+      if (!secFixedLower) continue;
+      const finalSetLower = BASE_TO_FINAL_TYPES[identifier] || [];
+      if (!finalSetLower.includes(secFixedLower)) continue;
     }
-    const finalSetLower = BASE_TO_FINAL_TYPES[identifier] || [];
-    const extraLower = finalSetLower.filter(t=>toTitle(t)!==primaryType);
+
+    // ===== Soft scoring (ranking) =====
     const arcH = fnv1a(identifier + "|" + String(pid||"") + "|" + primaryType);
     const arc = ["burst_leap","stable_accumulate","condition_trigger"][arcH % 3];
 
     let s = 0;
     const why = [];
 
-    // core identity alignment
     if (domWx && typeWx === domWx) { s += 2; why.push(`命格底色：${CONFIG.wuxing_zh[domWx]}（气质一致）`); }
     if (top1 && tagsDefault.includes(top1)) { s += 2; why.push(`行为命中：Top1=${ARCHETYPE_NAMES[top1]}`); }
     if (top2k && tagsDefault.includes(top2k)) { s += 1; why.push(`行为命中：Top2=${ARCHETYPE_NAMES[top2k]}`); }
     if (wantedArc && arc === wantedArc) { s += 1; why.push(`成长节奏：${arc}`); }
 
-    // secondary matching via evolution (only in dual mode)
-    let chosenSecondary = null;
-    if (mode2 === "dual") {
-    displaySecondary = `${CONFIG.type_zh[secondaryFinal]}（${secondaryFinal}）`;
-    secondaryReason = `副属性先由“年/月/时柱（弱化日柱）+答题”计算得到：${secondaryWanted ? (CONFIG.type_zh[secondaryWanted]+"("+secondaryWanted+")") : "—"}；最终副属性在选宝可梦前固定为 ${CONFIG.type_zh[secondaryFinal]}(${secondaryFinal})。` + (secondaryFinalizeNote? (`<br/>• `+secondaryFinalizeNote): ``) + `。`;
-  } else {
-
-        // no secondary specified, allow any
-        chosenSecondary = extraLower.length ? toTitle(extraLower[0]) : null;
-      }
+    if (mode === "dual") {
+      s += 3; // guaranteed match for secondary by constraint, reward it
+      why.push(`副属性命中：${CONFIG.type_zh[secondaryFixedTitle]}（进化链可达）`);
+    } else {
+      why.push(`纯属性模式：初始形态单属性且主副同源`);
     }
-    scored.push({ idx, pid, identifier, zh, arc, s, why, chosenSecondary, extraLower });
+
+    scored.push({ idx, pid, identifier, zh, arc, s, why });
   }
+
   scored.sort((a,b)=>b.s-a.s || a.idx-b.idx);
   return scored;
 }
 
-document.getElementById("calcBtn").addEventListener("click", () => {
+document.getElementById("calcBtn")).addEventListener("click", () => {
   const ans = getAnswers();
   if (!ans) {
     document.getElementById("msg").textContent = "还差几题没选完：请把 10 题都选上再生成结果。";
@@ -472,82 +471,57 @@ document.getElementById("calcBtn").addEventListener("click", () => {
 
   // 2) SecondaryWanted: use "context" wuxing (down-weight day pillar), to represent outside-world shaping.
   let secondaryWanted = null;
-  let secondaryScoreVec = null;
   if (baziInfo) {
     const weightsCtx = [1.0, 1.4, 0.25, 1.0]; // intentionally de-emphasize day pillar for context
     const wxCtx = wuxingFromBaziWithWeights(baziInfo.bazi, weightsCtx);
     const priorCtx = baziPriorArchetype(wxCtx);
     const biasCtx  = baziTypeBias(wxCtx);
     const blendedCtx = blendFinalType(quizArchScore, priorCtx, biasCtx);
-    secondaryWanted = argmax(blendedCtx.finalTypeScore);
-    const secondaryScoreVec = blendedCtx.finalTypeScore; // unrestricted here
+    secondaryWanted = argmax(blendedCtx.finalTypeScore); // unrestricted here
   } else {
     // no bazi: secondary = 2nd best from blended main
     const sorted = Object.entries(blendedMain.finalTypeScore).sort((a,b)=>b[1]-a[1]);
     secondaryWanted = sorted[1]?.[0] || primaryType;
-    secondaryScoreVec = blendedMain.finalTypeScore;
   }
 
   // 3) If primary == secondary => pure-mode (mono-type base only, no evo reference)
-  const mode = \(secondaryWanted === primaryType\) \? "pure" : "dual";
-  // Finalize secondary BEFORE picking pokemon: do not rewrite secondary after selecting a species.
-  let secondaryFinal = secondaryWanted;
-  let secondaryFinalizeNote = "";
-  if (mode2 === "dual") {
-    const wantedLower = secondaryWanted ? secondaryWanted.toLowerCase() : null;
-    if (wantedLower) {
-      const pool = POOLS[primaryType] || [];
-      let feasible = 0;
-      for (let i=0;i<pool.length;i++) {
-        const ident = pool[i][1];
-        const finalSetLower = BASE_TO_FINAL_TYPES[ident] || [];
-        const extraLower = finalSetLower.filter(t=>toTitle(t)!==primaryType);
-        if (extraLower.includes(wantedLower)) { feasible++; if (feasible>0) break; }
-      }
-      if (feasible === 0) {
-        // If user's secondary is not reachable under the current primary-type pool, downgrade to the best reachable secondary
-        // while keeping the "determine secondary first" principle: we select the closest feasible secondary given the pool.
-        const reachable = new Set();
-        for (let i=0;i<pool.length;i++) {
-          const ident = pool[i][1];
-          const finalSetLower = BASE_TO_FINAL_TYPES[ident] || [];
-          finalSetLower.forEach(t=>{
-            const tt = toTitle(t);
-            if (tt !== primaryType) reachable.add(tt);
-          });
-        }
-        if (reachable.size) {
-          let best = null, bestV = -Infinity;
-          for (const t of reachable) {
-            const v = (secondaryScoreVec && secondaryScoreVec[t] !== undefined) ? secondaryScoreVec[t] : (blendedMain.finalTypeScore[t]||0);
-            if (v > bestV) { bestV = v; best = t; }
-          }
-          secondaryFinalizeNote = `用户副属性倾向为 ${CONFIG.type_zh[secondaryWanted]}(${secondaryWanted})，但在主属性=${CONFIG.type_zh[primaryType]}(${primaryType}) 的候选池中不存在“进化链可达该副属性”的宝可梦；系统在保持主属性不变的前提下，选择该池内最接近的可达副属性：${CONFIG.type_zh[best]}(${best})。`;
-          secondaryFinal = best;
-        } else {
-          // No reachable secondary at all -> switch to pure mode by forcing secondary = primary
-          secondaryFinalizeNote = `主属性池内所有候选进化链均为单属性，无法生成任何副属性；系统切换为纯属性模式（副属性归并为主属性）。`;
-          secondaryFinal = primaryType;
-        }
-      }
-    }
-  } else {
-    secondaryFinal = primaryType; // pure mode always
-  }
-
+  const mode = (secondaryWanted === primaryType) ? "pure" : "dual";
 
   const domWx = dominantWuxing(wuxingScore);
-  const mode2 = (secondaryFinal === primaryType) ? "pure" : mode;
   const wantedArc = CONFIG.growth_arc_by_top1[top1] || null;
 
   // Rank candidates
-  const ranked = scoreAndRankCandidates(primaryType, secondaryFinal, top1, top2k, domWx, wantedArc, mode2);
+  const ranked = scoreAndRankCandidates(primaryType, secondaryWanted, top1, top2k, domWx, wantedArc, mode);
   const topNList = ranked.slice(0, 6);
 
   const seed = bitstring(ans) + "|" + baziStr + "|" + primaryType + "|" + secondaryWanted + "|" + (top1||"") + "|" + (top2k||"") + "|" + mode;
   const picked = pickFromTopN(topNList, seed);
 
   if (!picked) {
+    // Dual-mode strict constraint could yield empty set; keep determined primary/secondary and fall back to primary-only selection WITHOUT changing secondary.
+    if (mode === "dual") {
+      const relaxed = (POOLS[primaryType] || []).slice(0, 60).map((p, idx)=>({idx, pid:p[0], identifier:p[1], zh:p[2]}));
+      if (relaxed.length) {
+        const h = fnv1a(seed + "|relax");
+        const r = relaxed[h % relaxed.length];
+        const displayName = r.zh ? `${r.zh}` : r.identifier;
+        const subName = r.zh ? `${r.identifier}` : "";
+        document.getElementById("result").innerHTML = `
+          <div style="font-size:18px;font-weight:900;">${displayName} <span class="mono">${subName? "("+subName+")":""}</span></div>
+          <div class="sep"></div>
+          <span class="pill">模式：主/副属性（严格）→ 回退</span>
+          <span class="pill">主属性：${CONFIG.type_zh[primaryType]}（${primaryType}）</span>
+          <span class="pill">副属性：${CONFIG.type_zh[secondaryWanted]}（${secondaryWanted}）</span>
+          <div class="sep"></div>
+          <div class="small"><strong>回退说明</strong><br/>在当前数据库中，主属性为${CONFIG.type_zh[primaryType]}且进化链可达副属性${CONFIG.type_zh[secondaryWanted]}的候选为空。系统为保证输出稳定：<br/>• 仍保留你确定的副属性（不改写）<br/>• 宝可梦选择回退为“仅按主属性池确定性落点”。</div>
+          <div class="sep"></div>
+          <div class="small"><strong>主属性生成原因</strong><br/>${primaryReason}</div>
+          <div class="sep"></div>
+          <div class="small"><strong>副属性生成原因</strong><br/>${secondaryReason}</div>
+        `;
+        return;
+      }
+    }
     document.getElementById("result").innerHTML = `<div class="small">该模式下候选为空：请尝试更换生日时间或重置答题。</div>`;
     return;
   }
@@ -564,35 +538,16 @@ document.getElementById("calcBtn").addEventListener("click", () => {
     primaryReason = `日柱五行=${CONFIG.wuxing_zh[dayWx]}(${dayWx}) → 允许主属性集合=[${allowedArr.join(", ")}]；在该集合内按“答题+八字融合分”取最高：${CONFIG.type_zh[primaryType]}(${primaryType})，分数=${pScore.toFixed(2)}。`;
   } else {
     const pScore = blendedMain.finalTypeScore[primaryType] ?? 0;
-    primaryReason = `未填写生日：主属性直接按“答题+默认融合分”取最高：${CONFIG.type_zh[primaryType]}(${primaryType})，分数=${pScore.toFixed(2)}。`;
+    primaryReason = `未填写生日：主属性按“答题+默认融合分”取最高：${CONFIG.type_zh[primaryType]}(${primaryType})，分数=${pScore.toFixed(2)}。`;
   }
 
-  // Secondary display & reason
-  if (mode2 === "dual") {
-    const finalSetLower = picked.extraLower || [];
-    const wantedLower = secondaryWanted ? secondaryWanted.toLowerCase() : null;
-
-    if (wantedLower && finalSetLower.includes(wantedLower)) {
-      displaySecondary = `${CONFIG.type_zh[secondaryWanted]}（${secondaryWanted}）`;
-      secondaryReason = `副属性先由“年/月/时柱（弱化日柱）+答题”计算得到：${CONFIG.type_zh[secondaryWanted]}(${secondaryWanted})；最终副属性在选宝可梦前固定为 ${CONFIG.type_zh[secondaryFinal]}(${secondaryFinal})。` + (secondaryFinalizeNote? (`<br/>• `+secondaryFinalizeNote): ``) + `；该宝可梦进化链包含该副属性，因此命中。`;
-    } else if (finalSetLower.length) {
-      // choose best reachable secondary in evo set by blendedMain score
-      const extrasTitle = finalSetLower.map(toTitle);
-      let best = extrasTitle[0], bestV = -Infinity;
-      for (const t of extrasTitle) {
-        const v = blendedMain.finalTypeScore[t] || 0;
-        if (v > bestV) { bestV = v; best = t; }
-      }
-      displaySecondary = `${CONFIG.type_zh[best]}（${best}）`;
-      secondaryReason = `副属性倾向计算得到：${secondaryWanted ? (CONFIG.type_zh[secondaryWanted]+'('+secondaryWanted+')') : '—'}；但该宝可梦进化链不包含该副属性。系统改为在“该宝可梦可达的副属性集合”中选择与用户倾向最接近者：${CONFIG.type_zh[best]}(${best})。`;
-    } else {
-      // No reachable secondary in evolution chain -> force 'same-as-primary' secondary (pure-by-chain)
-      displaySecondary = `${CONFIG.type_zh[primaryType]}（${primaryType}）`;
-      secondaryReason = `副属性倾向计算得到：${secondaryWanted ? (CONFIG.type_zh[secondaryWanted]+'('+secondaryWanted+')') : '—'}；但该宝可梦进化链全程单属性，无法提供副属性。为避免出现“无”，系统将副属性归并为主属性：${CONFIG.type_zh[primaryType]}(${primaryType})。`;
-    }
-  } else {
+  // Secondary is determined BEFORE picking pokemon, and is NEVER overwritten by pokemon properties.
+  if (mode === "pure") {
     displaySecondary = `${CONFIG.type_zh[primaryType]}（${primaryType}）`;
-    secondaryReason = `主副同源（SecondaryType == PrimaryType）触发“纯属性模式”：仅从初始形态本身为单属性的宝可梦中选择。副属性归并为主属性：${CONFIG.type_zh[primaryType]}(${primaryType})。`;
+    secondaryReason = `主副同源（SecondaryType == PrimaryType）触发“纯属性模式”：仅从初始形态自身为单属性且主属性为${CONFIG.type_zh[primaryType]}的宝可梦中选择。副属性归并为主属性：${CONFIG.type_zh[primaryType]}(${primaryType})。`;
+  } else {
+    displaySecondary = `${CONFIG.type_zh[secondaryWanted]}（${secondaryWanted}）`;
+    secondaryReason = `副属性倾向由“年/月/时柱（弱化日柱）+答题”计算得到：${CONFIG.type_zh[secondaryWanted]}(${secondaryWanted})；随后在挑选宝可梦时强制要求“进化链可达该副属性”，因此副属性不会被宝可梦反向改写。`;
   }
 
   const displayName = picked.zh ? `${picked.zh}` : picked.identifier;
@@ -602,7 +557,7 @@ document.getElementById("calcBtn").addEventListener("click", () => {
   document.getElementById("result").innerHTML = `
     <div style="font-size:18px;font-weight:900;">${displayName} <span class="mono">${subName? "(" + subName + ")":""}</span></div>
     <div class="sep"></div>
-    <span class="pill">模式：${mode2==="pure" ? "纯属性" : "主/副属性"}</span>
+    <span class="pill">模式：${mode==="pure" ? "纯属性" : "主/副属性"}</span>
     <span class="pill">主属性：${CONFIG.type_zh[primaryType]}（${primaryType}）</span>
     <span class="pill">宝可梦主属性校验：${(BASE_TO_BASE_TYPES[picked.identifier] && BASE_TO_BASE_TYPES[picked.identifier][0]) ? (CONFIG.type_zh[toTitle(BASE_TO_BASE_TYPES[picked.identifier][0])] + "（" + toTitle(BASE_TO_BASE_TYPES[picked.identifier][0]) + "）") : "未知"}</span>
     <span class="pill">副属性：${displaySecondary}</span>
