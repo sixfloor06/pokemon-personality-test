@@ -60,7 +60,7 @@
 
   <div class="grid">
     <div class="card">
-      <div class="small"><strong>参数区</strong>（生日可选；不填则只用答题结果）</div>
+      <div class="small"><strong>参数区</strong>（可选：填写生日用于“命格加权”；不填则只用答题结果）</div>
 
       <div class="row" style="margin-top:10px;">
         <div>
@@ -190,9 +190,10 @@ function topN(score, n=2) {
   return Object.entries(score).sort((a,b)=>b[1]-a[1]).slice(0,n);
 }
 
-function projectArchetypesToTypes(score, top2) {
+function projectArchetypesToTypes(score) {
+  // 使用全部 14 原型分数参与属性投影（更细、更丰富）
   const typeScore = {};
-  top2.forEach(([arch, s]) => {
+  Object.entries(score).forEach(([arch, s]) => {
     (ARCH_TO_TYPE[arch]||[]).forEach(t => {
       typeScore[t] = (typeScore[t]||0) + s;
     });
@@ -291,9 +292,9 @@ function userPreferredGrowth(top2) {
   return GROWTH_PREF[t1] || null;
 }
 
-function synthesizePokemonProfile(finalType, pokemon, top2) {
+function synthesizePokemonProfile(finalType, pokemon, top2, userSeed) {
   const [_id, identifier, zhName] = pokemon;
-  const baseSeed = identifier + "|" + finalType;
+  const baseSeed = identifier + "|" + finalType + "|" + (userSeed||"");
   const h = fnv1a(baseSeed);
 
   const typeWx = TYPE_TO_WUXING[finalType] || "Earth";
@@ -393,7 +394,9 @@ document.getElementById("calcBtn").addEventListener("click", () => {
   const finalArch = priorArch ? combineArchetype(quizArch, priorArch, priorWeight) : quizArch;
   const top2 = topN(finalArch, 2);
 
-  const typeRaw = projectArchetypesToTypes(finalArch, top2);
+  const userSeed = bitstring(ans) + '|' + top2.map(x=>x[0]).join(',') + '|' + (baziInfo && baziInfo.bazi ? baziInfo.bazi.join('') : 'no-bazi');
+
+  const typeRaw = projectArchetypesToTypes(finalArch);
   const finalType = pickFinalType(typeRaw);
 
   if (!domWuxing) domWuxing = TYPE_TO_WUXING[finalType] || "Earth";
@@ -406,14 +409,15 @@ document.getElementById("calcBtn").addEventListener("click", () => {
   }
 
   const scored = pool.map(p => {
-    const prof = synthesizePokemonProfile(finalType, p, top2);
+    const prof = synthesizePokemonProfile(finalType, p, top2, userSeed);
     const s = scorePokemon(prof, domWuxing, top2, userArc);
     return { p, prof, s };
   });
   scored.sort((a,b)=>b.s-a.s);
 
-  const topNList = scored.slice(0,5);
-  const seed = bitstring(ans) + "|" + top2.map(x=>x[0]).join(",") + "|" + finalType + "|" + (baziInfo && baziInfo.bazi ? baziInfo.bazi.join("") : "no-bazi");
+  const K = Math.min(30, scored.length);
+  const topNList = scored.slice(0, K);
+  const seed = userSeed + "|" + finalType;
   const h = fnv1a(seed);
   const pick = topNList[h % topNList.length];
 
@@ -437,7 +441,7 @@ document.getElementById("calcBtn").addEventListener("click", () => {
       1) 宝可梦气质五行：<span class="mono">${WUXING_ZH[prof.temperament_wuxing]} (${prof.temperament_wuxing})</span><br/>
       2) 行为标签：<span class="mono">${prof.archetype_tags.map(t=>t+":"+ARCHETYPE_NAMES[t]).join(" / ")}</span><br/>
       3) 成长叙事：<span class="mono">${GROWTH_ZH[prof.growth_arc]} (${prof.growth_arc})</span><br/>
-      4) 排序得分：<span class="mono">${pick.s}</span>（同属性池 Top5 中确定性选取）
+      4) 排序得分：<span class="mono">${pick.s}</span>（同属性池 Top30 中确定性选取）
     </div>
   `;
 
@@ -457,7 +461,7 @@ document.getElementById("calcBtn").addEventListener("click", () => {
   const typeLabelMap = Object.fromEntries(Object.entries(TYPE_ZH).map(([k,v])=>[k, v+"("+k+")"]));
   const typeBars = renderTopBars(normalize(typeRaw), typeLabelMap, 8);
 
-  const top5List = topNList.map((x, i) => {
+  const topList = topNList.map((x, i) => {
     const z = x.p[2] ? x.p[2] : x.p[1];
     return `${i+1}. ${z} <span class="mono">(${x.p[1]})</span> — s=${x.s} / ${WUXING_ZH[x.prof.temperament_wuxing]} / ${GROWTH_ZH[x.prof.growth_arc]}`;
   }).join("<br/>");
@@ -474,7 +478,7 @@ document.getElementById("calcBtn").addEventListener("click", () => {
     <div class="small"><strong>属性投影（Top8）</strong></div>
     ${typeBars}
     <div class="sep"></div>
-    <div class="small"><strong>同属性池候选 Top5（Debug）</strong><br/>${top5List}</div>
+    <div class="small"><strong>同属性池候选 Top30（Debug）</strong><br/>${topList}</div>
     <div class="sep"></div>
     <div class="small"><strong>可复现种子</strong><br/><span class="mono">${seed}</span></div>
   `;
