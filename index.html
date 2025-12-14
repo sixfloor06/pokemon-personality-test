@@ -115,20 +115,49 @@
 <script>
 
 
-// === Boot self-check (v10) ===
+// === Boot self-check (v14) ===
 (function(){
   const $ = (id)=>document.getElementById(id);
-  function showFatal(title, err){
+  async function getSnippet(lineno){
+    try{
+      const res = await fetch(location.href, { cache: "no-store" });
+      const txt = await res.text();
+      const lines = txt.split(/?
+/);
+      const L = Math.max(1, lineno|0);
+      const from = Math.max(1, L-3), to = Math.min(lines.length, L+3);
+      let out = [];
+      for(let i=from;i<=to;i++){
+        out.push((i===L?"> ":"  ")+String(i).padStart(4," ")+": "+lines[i-1]);
+      }
+      return out.join("
+");
+    }catch(e){ return ""; }
+  }
+  async function showFatal(title, err, meta){
     const box = $('msg');
     const stats = $('poolStats');
     const detail = (err && (err.stack || err.message)) ? (err.stack || err.message) : String(err||'');
-    if (box) box.textContent = title + (detail ? (" | " + detail) : "");
-    if (stats) stats.innerHTML = `<span class="warn">初始化失败：</span><span class="mono">${title.replace(/</g,'&lt;')}</span><br/><span class="mono">${(detail||'').replace(/</g,'&lt;')}</span>`;
-    window.__BOOT_FATAL__ = { title, detail };
+    const loc = meta && (meta.filename || meta.lineno) ? `${meta.filename||''}:${meta.lineno||''}:${meta.colno||''}` : "";
+    const snippet = meta && meta.lineno ? await getSnippet(meta.lineno) : "";
+    const safe = (s)=>String(s||"").replace(/</g,"&lt;");
+    if (box) box.textContent = title + (loc ? (" | " + loc) : "");
+    if (stats) stats.innerHTML =
+      `<span class="warn">初始化失败：</span><span class="mono">${safe(title)}</span><br/>`+
+      (loc?`<span class="mono">${safe(loc)}</span><br/>`:"")+
+      (detail?`<pre class="mono" style="white-space:pre-wrap;margin:8px 0 0 0;">${safe(detail)}</pre>`:"")+
+      (snippet?`<div class="sep"></div><div class="small"><strong>报错附近代码</strong><pre class="mono" style="white-space:pre-wrap;margin:6px 0 0 0;">${safe(snippet)}</pre></div>`:"");
+    window.__BOOT_FATAL__ = { title, detail, loc, snippet };
   }
   window.__showFatal = showFatal;
-  window.addEventListener('error', (e)=>showFatal('脚本运行错误', e.error || e.message || e));
-  window.addEventListener('unhandledrejection', (e)=>showFatal('异步错误', e.reason || e));
+
+  window.addEventListener('error', (e)=>{
+    // e: ErrorEvent
+    showFatal('脚本运行错误', e.error || e.message || e, { filename:e.filename, lineno:e.lineno, colno:e.colno });
+  });
+  window.addEventListener('unhandledrejection', (e)=>{
+    showFatal('异步错误', e.reason || e);
+  });
 })();
 
 const CONFIG = {
