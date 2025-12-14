@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>宝可梦性格测试（Prototype）</title>
+<title>宝可梦性格测试（命格加权 Prototype）</title>
 <style>
   :root { --bg:#0b0f17; --muted:#94a3b8; --text:#e5e7eb; --line:#243244; }
   body{margin:0;background:linear-gradient(180deg,var(--bg),#070a10);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Noto Sans SC","Helvetica Neue",Arial,sans-serif;}
@@ -33,16 +33,22 @@
   .bar{height:10px;background:#0c1220;border:1px solid var(--line);border-radius:999px;overflow:hidden;}
   .bar > div{height:100%;background:linear-gradient(90deg,#34d399,#60a5fa);}
   .sep{height:1px;background:var(--line);margin:12px 0;}
+  label{display:block;font-size:12px;color:var(--muted);margin:8px 0 6px;}
+  input,select{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;background:#0f172a;color:var(--text);padding:10px 10px;}
+  .row{display:grid;grid-template-columns:1fr;gap:10px;}
+  @media (min-width:680px){.row{grid-template-columns:1fr 1fr;}}
 </style>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lunar-javascript/1.6.3/lunar.min.js"></script>
 </head>
 <body>
 <div class="wrap">
   <div class="top">
     <div class="title card">
-      <h1>宝可梦性格测试（Prototype）</h1>
+      <h1>宝可梦性格测试（命格加权 Prototype）</h1>
       <div class="sub">
-        操作说明：只需要完成 10 题，并点击「生成我的宝可梦」。<br/>
-        <span class="small">固定默认策略：题目 → 原型 Top2 → 18 属性投影 → FinalType；同属性池内按“气质/行为/成长叙事”排序后确定性选取。</span>
+        Pipeline：题目生成原型 Top2 → 投影 18 属性；八字生成五行与原型先验（Prior）并自动融合；最终在同属性池内按“气质/行为/成长叙事”排序并确定性选取。<br/>
+        <span class="small">双属性说明：只使用<strong>主属性</strong>（FinalType）。</span>
       </div>
     </div>
     <div class="card" style="min-width:280px;flex:0.9">
@@ -54,21 +60,28 @@
 
   <div class="grid">
     <div class="card">
-      <div class="small"><strong>答题区</strong>（全 10 题，必须全部选择）</div>
-      <div id="quiz" style="margin-top:10px;"></div>
+      <div class="small"><strong>参数区</strong>（生日可选；不填则只用答题结果）</div>
 
-      <div class="actions">
-        <button class="primary" id="calcBtn">生成我的宝可梦</button>
-        <button class="ghost" id="resetBtn">重置</button>
+      <div class="row" style="margin-top:10px;">
+        <div>
+          <label>生日（公历）</label>
+          <input type="date" id="birthDate" />
+          <div class="small">不填：不启用命格先验</div>
+        </div>
+        <div>
+          <label>出生时间（可选）</label>
+          <input type="time" id="birthTime" step="60" />
+          <div class="small">不填：默认 12:00</div>
+        </div>
       </div>
-      <div class="small" id="msg" style="margin-top:10px;"></div>
-    </div>
 
-    <div class="card">
-      <div style="font-size:18px;font-weight:900;margin-bottom:8px;">结果</div>
-      <div class="small">完成左侧答题后点击「生成我的宝可梦」。</div>
-      <div class="sep"></div>
-      <div id="result"></div>
+      <div class="card" style="margin-top:14px;">
+    <div class="small"><strong>MVP 数据结构</strong></div>
+    <div class="sep"></div>
+    <div class="small">
+      <span class="mono">type_to_wuxing</span>：18 属性唯一归属五行（龙=金）<br/>
+      <span class="mono">wuxing_to_archetype_prior</span>：五行人格底色 → 原型先验（Prior）<br/>
+      默认推断：用哈希把同属性池内的宝可梦确定性“打散”出气质/成长叙事，再用你的画像排序。后续你可以加 <span class="mono">pokemon_profile_overrides</span> 来人工校准个例。
     </div>
   </div>
 </div>
@@ -79,11 +92,19 @@ const ARCHETYPE_NAMES = {"A1":"行动爆发型","A2":"持续推进型","B1":"本
 const ARCH_TO_TYPE = {"A1":["Fire","Electric","Flying"],"A2":["Grass","Ground","Steel"],"B1":["Bug","Dragon","Dark"],"B2":["Psychic","Steel","Ice"],"C1":["Fire","Water","Fairy","Normal"],"C2":["Ghost","Poison","Ice"],"D1":["Fighting","Fire","Dragon"],"D2":["Water","Ghost","Ice"],"E1":["Grass","Bug","Fairy"],"E2":["Dragon","Ghost","Rock"],"F1":["Flying","Electric","Water"],"F2":["Ground","Rock","Normal"],"G1":["Normal","Psychic"],"G2":["Steel","Rock"]};
 const TYPE_ZH = {"Normal":"一般","Fire":"火","Water":"水","Grass":"草","Electric":"电","Ice":"冰","Fighting":"格斗","Poison":"毒","Ground":"地面","Flying":"飞行","Psychic":"超能","Bug":"虫","Rock":"岩石","Ghost":"幽灵","Dragon":"龙","Dark":"恶","Steel":"钢","Fairy":"妖精"};
 const POOLS = {"Normal":[[16,"pidgey","波波"],[19,"rattata","小拉达"],[21,"spearow","烈雀"],[52,"meowth","喵喵"],[83,"farfetchd","大葱鸭"],[84,"doduo","嘟嘟"],[108,"lickitung","大舌头"],[115,"kangaskhan","袋兽"],[128,"tauros","肯泰罗"],[132,"ditto","百变怪"],[133,"eevee","伊布"],[137,"porygon","多边兽"],[161,"sentret","尾立"],[163,"hoothoot","咕咕"],[174,"igglybuff","宝宝丁"],[190,"aipom","长尾怪手"],[203,"girafarig","麒麟奇"],[206,"dunsparce","土龙弟弟"],[216,"teddiursa","熊宝宝"],[234,"stantler","惊角鹿"],[235,"smeargle","图图犬"],[241,"miltank","大奶罐"],[263,"zigzagoon","蛇纹熊"],[276,"taillow","傲骨燕"],[287,"slakoth","懒人獭"],[293,"whismur","咕妞妞"],[298,"azurill","露力丽"],[300,"skitty","向尾喵"],[327,"spinda","晃晃斑"],[333,"swablu","青绵鸟"],[335,"zangoose","猫鼬斩"],[351,"castform","飘浮泡泡"],[352,"kecleon","变隐龙"],[396,"starly","姆克儿"],[399,"bidoof","大牙狸"],[427,"buneary","卷卷耳"],[431,"glameow","魅力喵"],[440,"happiny","小福蛋"],[441,"chatot","聒噪鸟"],[446,"munchlax","小卡比兽"],[504,"patrat","探探鼠"],[506,"lillipup","小约克"],[519,"pidove","豆豆鸽"],[531,"audino","差不多娃娃"],[572,"minccino","泡沫栗鼠"],[585,"deerling","四季鹿"],[626,"bouffalant","爆炸头水牛"],[627,"rufflet","毛头小鹰"],[659,"bunnelby","掘掘兔"],[661,"fletchling","小箭雀"],[676,"furfrou","多丽米亚"],[731,"pikipek","小笃儿"],[734,"yungoos","猫鼬少"],[759,"stufful","童偶熊"],[765,"oranguru","智挥猩"],[775,"komala","树枕尾熊"],[780,"drampa","老翁龙"],[819,"skwovet","贪心栗鼠"],[831,"wooloo","毛辫羊"],[915,"lechonk","爱吃豚"],[924,"tandemaus","一对鼠"],[931,"squawkabilly","怒鹦哥"]],"Fighting":[[56,"mankey","猴怪"],[66,"machop","腕力"],[236,"tyrogue","无畏小子"],[296,"makuhita","幕下力士"],[307,"meditite","玛沙那"],[447,"riolu","利欧路"],[532,"timburr","搬运小匠"],[538,"throh","投摔鬼"],[539,"sawk","打击鬼"],[619,"mienfoo","功夫鼬"],[674,"pancham","顽皮熊猫"],[701,"hawlucha","摔角鹰人"],[739,"crabrawler","好胜蟹"],[766,"passimian","投掷猴"],[852,"clobbopus","拳拳蛸"],[870,"falinks","列阵兵"],[992,"iron-hands","铁臂膀"]],"Flying":[[714,"noibat","嗡蝠"],[821,"rookidee","稚山雀"],[845,"cramorant","古月鸟"],[962,"bombirdier","下石鸟"],[973,"flamigo","纏红鹤"]],"Poison":[[23,"ekans","阿柏蛇"],[29,"nidoran-f","尼多兰"],[32,"nidoran-m","尼多朗"],[41,"zubat","超音蝠"],[88,"grimer","臭泥"],[109,"koffing","瓦斯弹"],[316,"gulpin","溶食兽"],[336,"seviper","饭匙蛇"],[434,"stunky","臭鼬噗"],[451,"skorupi","钳尾蝎"],[453,"croagunk","不良蛙"],[568,"trubbish","破破袋"],[690,"skrelp","垃垃藻"],[747,"mareanie","好坏星"],[757,"salandit","夜盗火蜥"],[803,"poipole","毒贝比"],[944,"shroodle","滋汁鼹"]],"Ground":[[27,"sandshrew","穿山鼠"],[50,"diglett","地鼠"],[104,"cubone","卡拉卡拉"],[111,"rhyhorn","独角犀牛"],[207,"gligar","天蝎"],[231,"phanpy","小小象"],[328,"trapinch","大颚蚁"],[343,"baltoy","天秤偶"],[449,"hippopotas","沙河马"],[529,"drilbur","螺钉地鼠"],[551,"sandile","黑眼鳄"],[618,"stunfisk","泥巴鱼"],[622,"golett","泥偶小人"],[749,"mudbray","泥驴仔"],[843,"silicobra","沙包蛇"],[948,"toedscool","原野水母"],[984,"great-tusk","雄伟牙"],[990,"iron-treads","铁轍迹"]],"Rock":[[74,"geodude","小拳石"],[95,"onix","大岩蛇"],[138,"omanyte","菊石兽"],[140,"kabuto","化石盔"],[142,"aerodactyl","化石翼龙"],[246,"larvitar","幼基拉斯"],[299,"nosepass","朝北鼻"],[337,"lunatone","月石"],[338,"solrock","太阳岩"],[345,"lileep","触手百合"],[347,"anorith","太古羽虫"],[408,"cranidos","头盖龙"],[410,"shieldon","盾甲龙"],[438,"bonsly","盆才怪"],[524,"roggenrola","石丸子"],[566,"archen","始祖小鸟"],[688,"binacle","龟脚脚"],[696,"tyrunt","宝宝暴龙"],[698,"amaura","冰雪龙"],[703,"carbink","小碎钻"],[744,"rockruff","岩狗狗"],[774,"minior","小陨星"],[793,"nihilego","虚吾伊德"],[805,"stakataka","垒磊石"],[837,"rolycoly","小炭仔"],[874,"stonjourner","巨石丁"],[932,"nacli","盐石宝"],[950,"klawf","毛崖蟹"],[969,"glimmet","晶光芽"],[995,"iron-thorns","铁荆棘"],[1022,"iron-boulder","鐵磐岩"]],"Bug":[[10,"caterpie","绿毛虫"],[13,"weedle","独角虫"],[46,"paras","派拉斯"],[48,"venonat","毛球"],[123,"scyther","飞天螳螂"],[127,"pinsir","凯罗斯"],[165,"ledyba","芭瓢虫"],[167,"spinarak","圆丝蛛"],[193,"yanma","蜻蜻蜓"],[204,"pineco","榛果球"],[213,"shuckle","壶壶"],[214,"heracross","赫拉克罗斯"],[265,"wurmple","刺尾虫"],[283,"surskit","溜溜糖球"],[290,"nincada","土居忍士"],[313,"volbeat","电萤虫"],[314,"illumise","甜甜萤"],[401,"kricketot","圆法师"],[412,"burmy","结草儿"],[415,"combee","三蜜蜂"],[540,"sewaddle","虫宝包"],[543,"venipede","百足蜈蚣"],[557,"dwebble","石居蟹"],[588,"karrablast","盖盖虫"],[595,"joltik","电电虫"],[616,"shelmet","小嘴蜗"],[632,"durant","铁蚁"],[636,"larvesta","燃烧虫"],[664,"scatterbug","粉蝶虫"],[736,"grubbin","强颚鸡母虫"],[742,"cutiefly","萌虻"],[767,"wimpod","胆小虫"],[794,"buzzwole","爆肌蚊"],[795,"pheromosa","费洛美螂"],[824,"blipbug","索侦虫"],[917,"tarountula","团珠蛛"],[919,"nymble","豆蟋蟀"],[953,"rellor","虫滚泥"],[988,"slither-wing","爬地翅"]],"Ghost":[[92,"gastly","鬼斯"],[200,"misdreavus","梦妖"],[353,"shuppet","怨影娃娃"],[355,"duskull","夜巡灵"],[425,"drifloon","飘飘球"],[442,"spiritomb","花岩怪"],[562,"yamask","哭哭面具"],[607,"litwick","烛光灵"],[708,"phantump","小木灵"],[710,"pumpkaboo","南瓜精"],[769,"sandygast","沙丘娃"],[778,"mimikyu","谜拟丘"],[781,"dhelmise","破破舵轮"],[854,"sinistea","来悲茶"],[971,"greavard","墓仔狗"],[987,"flutter-mane","振翼发"],[999,"gimmighoul","索财灵"]],"Steel":[[227,"skarmory","盔甲鸟"],[303,"mawile","大嘴娃"],[304,"aron","可可多拉"],[374,"beldum","铁哑铃"],[436,"bronzor","铜镜怪"],[599,"klink","齿轮儿"],[679,"honedge","独剑鞘"],[707,"klefki","钥圈儿"],[797,"celesteela","铁火辉夜"],[878,"cufant","铜象"],[884,"duraludon","铝钢龙"],[965,"varoom","噗隆隆"],[968,"orthworm","拖拖蚓"],[1023,"iron-crown","鐵頭殼"]],"Fire":[[4,"charmander","小火龙"],[37,"vulpix","六尾"],[58,"growlithe","卡蒂狗"],[77,"ponyta","小火马"],[155,"cyndaquil","火球鼠"],[218,"slugma","熔岩虫"],[240,"magby","鸭嘴宝宝"],[255,"torchic","火稚鸡"],[322,"numel","呆火驼"],[324,"torkoal","煤炭龟"],[390,"chimchar","小火焰猴"],[498,"tepig","暖暖猪"],[513,"pansear","爆香猴"],[554,"darumaka","火红不倒翁"],[631,"heatmor","熔蚁兽"],[653,"fennekin","火狐狸"],[667,"litleo","小狮狮"],[725,"litten","火斑喵"],[741,"oricorio","花舞鸟"],[776,"turtonator","爆焰龟兽"],[806,"blacephalon","砰头小丑"],[813,"scorbunny","炎兔儿"],[850,"sizzlipede","烧火蚣"],[909,"fuecoco","呆火鳄"],[935,"charcadet","炭小侍"],[994,"iron-moth","铁毒蛾"],[1020,"gouging-fire","破空焰"]],"Water":[[7,"squirtle","杰尼龟"],[54,"psyduck","可达鸭"],[60,"poliwag","蚊香蝌蚪"],[72,"tentacool","玛瑙水母"],[79,"slowpoke","呆呆兽"],[86,"seel","小海狮"],[90,"shellder","大舌贝"],[98,"krabby","大钳蟹"],[116,"horsea","墨海马"],[118,"goldeen","角金鱼"],[120,"staryu","海星星"],[129,"magikarp","鲤鱼王"],[131,"lapras","拉普拉斯"],[158,"totodile","小锯鳄"],[170,"chinchou","灯笼鱼"],[194,"wooper","乌波"],[211,"qwilfish","千针鱼"],[222,"corsola","太阳珊瑚"],[223,"remoraid","铁炮鱼"],[258,"mudkip","水跃鱼"],[270,"lotad","莲叶童子"],[278,"wingull","长翅鸥"],[318,"carvanha","利牙鱼"],[320,"wailmer","吼吼鲸"],[339,"barboach","泥泥鳅"],[341,"corphish","龙虾小兵"],[349,"feebas","丑丑鱼"],[366,"clamperl","珍珠贝"],[369,"relicanth","古空棘鱼"],[370,"luvdisc","爱心鱼"],[393,"piplup","波加曼"],[418,"buizel","泳圈鼬"],[422,"shellos","无壳海兔"],[456,"finneon","荧光鱼"],[458,"mantyke","小球飞鱼"],[501,"oshawott","水水獭"],[515,"panpour","冷水猴"],[535,"tympole","圆蝌蚪"],[550,"basculin","野蛮鲈鱼"],[564,"tirtouga","原盖海龟"],[580,"ducklett","鸭宝宝"],[592,"frillish","轻飘飘"],[594,"alomomola","保姆曼波"],[656,"froakie","呱呱泡蛙"],[692,"clauncher","铁臂枪虾"],[728,"popplio","球球海狮"],[746,"wishiwashi","弱丁鱼"],[751,"dewpider","滴蛛"],[771,"pyukumuku","拳海参"],[779,"bruxish","磨牙彩皮鱼"],[816,"sobble","泪眼蜥"],[833,"chewtle","咬咬龟"],[846,"arrokuda","刺梭鱼"],[882,"dracovish","鳃鱼龙"],[883,"arctovish","鳃鱼海兽"],[912,"quaxly","润水鸭"],[960,"wiglett","海地鼠"],[963,"finizen","波普海豚"],[976,"veluza","轻身鳕"],[977,"dondozo","吃吼霸"],[1009,"walking-wake","波荡水"]],"Grass":[[1,"bulbasaur","妙蛙种子"],[43,"oddish","走路草"],[69,"bellsprout","喇叭芽"],[102,"exeggcute","蛋蛋"],[114,"tangela","蔓藤怪"],[152,"chikorita","菊草叶"],[187,"hoppip","毽子草"],[191,"sunkern","向日种子"],[252,"treecko","木守宫"],[273,"seedot","橡实果"],[285,"shroomish","蘑蘑菇"],[331,"cacnea","刺球仙人掌"],[357,"tropius","热带龙"],[387,"turtwig","草苗龟"],[406,"budew","含羞苞"],[420,"cherubi","樱花宝"],[455,"carnivine","尖牙笼"],[459,"snover","雪笠怪"],[495,"snivy","藤藤蛇"],[511,"pansage","花椰猴"],[546,"cottonee","木棉球"],[548,"petilil","百合根娃娃"],[556,"maractus","沙铃仙人掌"],[590,"foongus","哎呀球菇"],[597,"ferroseed","种子铁球"],[650,"chespin","哈力栗"],[672,"skiddo","坐骑小羊"],[722,"rowlet","木木枭"],[753,"fomantis","伪螳草"],[755,"morelull","睡睡菇"],[761,"bounsweet","甜竹竹"],[798,"kartana","纸御剑"],[810,"grookey","敲音猴"],[829,"gossifleur","幼棉棉"],[840,"applin","啃果虫"],[906,"sprigatito","新叶喵"],[928,"smoliv","迷你芙"],[946,"bramblin","纳噬草"],[951,"capsakid","热辣娃"],[986,"brute-bonnet","猛恶菇"],[1010,"iron-leaves","铁斑叶"],[1012,"poltchageist","斯魔茶"]],"Electric":[[81,"magnemite","小磁怪"],[100,"voltorb","霹雳电球"],[172,"pichu","皮丘"],[179,"mareep","咩利羊"],[239,"elekid","电击怪"],[309,"electrike","落雷兽"],[311,"plusle","正电拍拍"],[312,"minun","負电拍拍"],[403,"shinx","小猫怪"],[417,"pachirisu","帕奇利兹"],[479,"rotom","洛托姆"],[522,"blitzle","斑斑马"],[587,"emolga","电飞鼠"],[602,"tynamo","麻麻小鱼"],[694,"helioptile","伞电蜥"],[702,"dedenne","咚咚鼠"],[777,"togedemaru","托戈德玛尔"],[796,"xurkitree","电束木"],[835,"yamper","来电汪"],[848,"toxel","电音婴"],[871,"pincurchin","啪嚓海胆"],[877,"morpeko","莫鲁贝可"],[880,"dracozolt","雷鸟龙"],[881,"arctozolt","雷鸟海兽"],[921,"pawmi","布拨"],[938,"tadbulb","光蚪仔"],[940,"wattrel","电海燕"],[989,"sandy-shocks","沙铁皮"],[1021,"raging-bolt","猛雷鼓"]],"Psychic":[[63,"abra","凯西"],[96,"drowzee","催眠貘"],[177,"natu","天然雀"],[201,"unown","未知图腾"],[280,"ralts","拉鲁拉丝"],[325,"spoink","跳跳猪"],[360,"wynaut","小果然"],[433,"chingling","铃铛响"],[439,"mime-jr","魔尼尼"],[517,"munna","食梦梦"],[527,"woobat","滚滚蝙蝠"],[561,"sigilyph","象征鸟"],[574,"gothita","哥德宝宝"],[577,"solosis","单卵细胞球"],[605,"elgyem","小灰怪"],[677,"espurr","妙喵"],[856,"hatenna","迷布莉姆"],[876,"indeedee","爱管侍"],[955,"flittle","飘飘雏"]],"Ice":[[220,"swinub","小山猪"],[225,"delibird","信使鸟"],[238,"smoochum","迷唇娃"],[361,"snorunt","雪童子"],[363,"spheal","海豹球"],[582,"vanillite","迷你冰"],[613,"cubchoo","喷嚏熊"],[615,"cryogonal","几何雪花"],[712,"bergmite","冰宝"],[872,"snom","雪吞虫"],[875,"eiscue","冰砌鹅"],[974,"cetoddle","走鲸"],[991,"iron-bundle","铁包袱"]],"Dragon":[[147,"dratini","迷你龙"],[371,"bagon","宝贝龙"],[443,"gible","圆陆鲨"],[610,"axew","牙牙"],[621,"druddigon","赤面龙"],[704,"goomy","黏黏宝"],[782,"jangmo-o","心鳞宝"],[885,"dreepy","多龙梅西亚"],[967,"cyclizar","摩托蜥"],[978,"tatsugiri","米立龙"],[996,"frigibax","凉脊龙"],[1005,"roaring-moon","轰鸣月"]],"Dark":[[198,"murkrow","黑暗鸦"],[215,"sneasel","狃拉"],[228,"houndour","戴鲁比"],[261,"poochyena","土狼犬"],[302,"sableye","勾魂眼"],[359,"absol","阿勃梭鲁"],[509,"purrloin","扒手猫"],[559,"scraggy","滑滑小子"],[570,"zorua","索罗亚"],[624,"pawniard","驹刀小兵"],[629,"vullaby","秃鹰丫头"],[633,"deino","单首龙"],[686,"inkay","好啦鱿"],[799,"guzzlord","恶食大王"],[827,"nickit","狡小狐"],[859,"impidimp","捣蛋小妖"],[942,"maschiff","偶叫獒"],[993,"iron-jugulis","铁脖颈"]],"Fairy":[[173,"cleffa","皮宝宝"],[175,"togepi","波克比"],[209,"snubbull","布鲁"],[669,"flabebe","花蓓蓓"],[682,"spritzee","粉香香"],[684,"swirlix","绵绵泡芙"],[764,"comfey","花疗环环"],[868,"milcery","小仙奶"],[926,"fidough","狗仔包"],[957,"tinkatink","小锻匠"],[985,"scream-tail","吼叫尾"],[1006,"iron-valiant","铁武者"]]};
+
 const TYPE_TO_WUXING = {"Normal":"Earth","Fire":"Fire","Water":"Water","Grass":"Wood","Electric":"Fire","Ice":"Water","Fighting":"Fire","Poison":"Metal","Ground":"Earth","Flying":"Wood","Psychic":"Fire","Bug":"Wood","Rock":"Earth","Ghost":"Water","Dragon":"Metal","Dark":"Water","Steel":"Metal","Fairy":"Wood"};
 const WUXING_TO_ARCH_PRIOR = {"Wood":{"F1":2,"B1":2,"G1":2,"A1":1,"E1":1},"Fire":{"A1":2,"D1":2,"C1":2,"F1":1,"B1":1},"Earth":{"A2":2,"F2":2,"E1":2,"E2":1,"G2":1},"Water":{"C2":2,"D2":2,"G1":2,"B2":1,"E2":1},"Metal":{"B2":2,"G2":2,"E2":2,"A2":1,"F2":1}};
 const GROWTH_PREF = {"A1":"burst_leap","D1":"burst_leap","C1":"burst_leap","B1":"burst_leap","F1":"burst_leap","A2":"stable_accumulate","F2":"stable_accumulate","G2":"stable_accumulate","E1":"stable_accumulate","E2":"stable_accumulate","B2":"condition_trigger","G1":"condition_trigger","D2":"condition_trigger","C2":"condition_trigger"};
 const WUXING_ZH = {"Wood":"木","Fire":"火","Earth":"土","Metal":"金","Water":"水"};
 const GROWTH_ZH = {"burst_leap":"爆发跃迁型","stable_accumulate":"稳定累积型","condition_trigger":"条件触发型"};
+
+const STEM_TO_WUXING = {
+  "甲":"Wood","乙":"Wood","丙":"Fire","丁":"Fire","戊":"Earth","己":"Earth","庚":"Metal","辛":"Metal","壬":"Water","癸":"Water"
+};
+const BRANCH_TO_WUXING = {
+  "子":"Water","丑":"Earth","寅":"Wood","卯":"Wood","辰":"Earth","巳":"Fire","午":"Fire","未":"Earth","申":"Metal","酉":"Metal","戌":"Earth","亥":"Water"
+};
 
 const WUXING = ["Wood","Fire","Earth","Metal","Water"];
 const GROWTH = ["burst_leap","stable_accumulate","condition_trigger"];
@@ -187,6 +208,79 @@ function normalize(scores) {
   return out;
 }
 
+function safeGetBazi() {
+  const d = document.getElementById("birthDate").value;
+  if (!d) return null;
+  const t = document.getElementById("birthTime").value || "12:00";
+  const [Y,M,D] = d.split("-").map(x=>parseInt(x,10));
+  const [hh,mm] = t.split(":").map(x=>parseInt(x,10));
+
+  if (typeof Solar === "undefined") return { error: "八字库未加载（可能被网络拦截）" };
+
+  try {
+    const solar = Solar.fromYmdHms ? Solar.fromYmdHms(Y, M, D, hh, mm, 0) : Solar.fromYmd(Y, M, D);
+    const lunar = solar.getLunar();
+    const bazi = lunar.getBaZi ? lunar.getBaZi() : null;
+    if (!bazi || !Array.isArray(bazi) || bazi.length < 4) {
+      return { error: "八字接口不可用（库版本差异），建议升级 CDN 版本" };
+    }
+    return { bazi };
+  } catch (e) {
+    return { error: "八字计算失败：" + (e && e.message ? e.message : String(e)) };
+  }
+}
+
+function wuxingVectorFromBazi(bazi) {
+  const score = {Wood:0,Fire:0,Earth:0,Metal:0,Water:0};
+  const weights = [1.0, 1.4, 1.0, 0.9]; // 年/月/日/时（轻强调月）
+  bazi.forEach((gz, i) => {
+    const w = weights[i] || 1.0;
+    const stem = gz[0];
+    const branch = gz[1];
+    const se = STEM_TO_WUXING[stem];
+    const be = BRANCH_TO_WUXING[branch];
+    if (se) score[se] += 1.0 * w;
+    if (be) score[be] += 0.6 * w;
+  });
+  return score;
+}
+
+function dominantWuxing(vec) {
+  const arr = Object.entries(vec).sort((a,b)=>b[1]-a[1]);
+  return arr[0][0];
+}
+
+function priorFromWuxing(vec, mode) {
+  const prior = {};
+  Object.keys(ARCHETYPE_NAMES).forEach(k=>prior[k]=0);
+
+  if (mode === "dominant") {
+    const dom = dominantWuxing(vec);
+    const map = WUXING_TO_ARCH_PRIOR[dom] || {};
+    Object.entries(map).forEach(([k,v])=>prior[k]+=v);
+    return { prior, dom };
+  }
+
+  const max = Math.max(...Object.values(vec), 1e-9);
+  Object.entries(vec).forEach(([wx, val]) => {
+    const w = val / max;
+    const map = WUXING_TO_ARCH_PRIOR[wx] || {};
+    Object.entries(map).forEach(([k,v])=>prior[k]+=v*w);
+  });
+  const dom = dominantWuxing(vec);
+  return { prior, dom };
+}
+
+function combineArchetype(quiz, prior, priorWeight) {
+  const qn = normalize(quiz);
+  const pn = normalize(prior);
+  const out = {};
+  Object.keys(ARCHETYPE_NAMES).forEach(k => {
+    out[k] = (1-priorWeight)*(qn[k]||0) + priorWeight*(pn[k]||0);
+  });
+  return out;
+}
+
 function pickFinalType(typeScore) {
   const best = Object.entries(typeScore).sort((a,b)=>b[1]-a[1]);
   return best[0][0];
@@ -272,13 +366,37 @@ document.getElementById("calcBtn").addEventListener("click", () => {
     return;
   }
 
-  const quizArch = scoreArchetypes(ans);
-  const top2 = topN(quizArch, 2);
+  // 默认融合策略：题目为主，命格为辅（若填写生日则启用）
+  const DEFAULT_PRIOR_WEIGHT = 0.25;
+  const DEFAULT_WUXING_MODE = "dominant";
 
-  const typeRaw = projectArchetypesToTypes(quizArch, top2);
+  const quizArch = scoreArchetypes(ans);
+
+  let baziInfo = safeGetBazi();
+  const priorWeight = baziInfo ? DEFAULT_PRIOR_WEIGHT : 0;
+  const wuxingMode = DEFAULT_WUXING_MODE;
+  let wuxingVec = null;
+  let domWuxing = null;
+  let priorArch = null;
+
+  if (priorWeight > 0) {
+    if (baziInfo.error) {
+      document.getElementById("msg").innerHTML = baziInfo.error;
+      return;
+    }
+    wuxingVec = wuxingVectorFromBazi(baziInfo.bazi);
+    const p = priorFromWuxing(wuxingVec, wuxingMode);
+    priorArch = p.prior;
+    domWuxing = p.dom;
+  }
+
+  const finalArch = priorArch ? combineArchetype(quizArch, priorArch, priorWeight) : quizArch;
+  const top2 = topN(finalArch, 2);
+
+  const typeRaw = projectArchetypesToTypes(finalArch, top2);
   const finalType = pickFinalType(typeRaw);
 
-  const userDomWuxing = TYPE_TO_WUXING[finalType] || "Earth";
+  if (!domWuxing) domWuxing = TYPE_TO_WUXING[finalType] || "Earth";
   const userArc = userPreferredGrowth(top2);
 
   const pool = POOLS[finalType] || [];
@@ -289,13 +407,13 @@ document.getElementById("calcBtn").addEventListener("click", () => {
 
   const scored = pool.map(p => {
     const prof = synthesizePokemonProfile(finalType, p, top2);
-    const s = scorePokemon(prof, userDomWuxing, top2, userArc);
+    const s = scorePokemon(prof, domWuxing, top2, userArc);
     return { p, prof, s };
   });
   scored.sort((a,b)=>b.s-a.s);
 
   const topNList = scored.slice(0,5);
-  const seed = bitstring(ans) + "|" + top2.map(x=>x[0]).join(",") + "|" + finalType;
+  const seed = bitstring(ans) + "|" + top2.map(x=>x[0]).join(",") + "|" + finalType + "|" + (baziInfo && baziInfo.bazi ? baziInfo.bazi.join("") : "no-bazi");
   const h = fnv1a(seed);
   const pick = topNList[h % topNList.length];
 
@@ -308,14 +426,14 @@ document.getElementById("calcBtn").addEventListener("click", () => {
 
   const pills = [
     `<span class="pill">FinalType：${TYPE_ZH[finalType]||finalType}（${finalType}）</span>`,
-    `<span class="pill">主五行：${WUXING_ZH[userDomWuxing]||userDomWuxing}（${userDomWuxing}）</span>`,
-    `<span class="pill">成长叙事：${GROWTH_ZH[userArc]||userArc||"—"}</span>`,
+    `<span class="pill">命格主五行：${WUXING_ZH[domWuxing]||domWuxing}（${domWuxing}）</span>`,
+    `<span class="pill">成长叙事偏好：${GROWTH_ZH[userArc]||userArc||"—"} </span>`,
     `<span class="pill">Top 原型：${top2.map(([k,v])=>`${ARCHETYPE_NAMES[k]}(${k})`).join(" / ")}</span>`
   ].join("");
 
   const explain = `
     <div class="sep"></div>
-    <div class="small"><strong>命中解释（固定默认规则）</strong><br/>
+    <div class="small"><strong>命中解释（MVP）</strong><br/>
       1) 宝可梦气质五行：<span class="mono">${WUXING_ZH[prof.temperament_wuxing]} (${prof.temperament_wuxing})</span><br/>
       2) 行为标签：<span class="mono">${prof.archetype_tags.map(t=>t+":"+ARCHETYPE_NAMES[t]).join(" / ")}</span><br/>
       3) 成长叙事：<span class="mono">${GROWTH_ZH[prof.growth_arc]} (${prof.growth_arc})</span><br/>
@@ -323,7 +441,19 @@ document.getElementById("calcBtn").addEventListener("click", () => {
     </div>
   `;
 
-  const archBars = renderTopBars(quizArch, ARCHETYPE_NAMES, 8);
+  let baziBlock = "";
+  if (baziInfo && wuxingVec) {
+    const wxLine = Object.entries(wuxingVec).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`${WUXING_ZH[k]}=${v.toFixed(2)}`).join(" / ");
+    baziBlock = `
+      <div class="sep"></div>
+      <div class="small"><strong>八字与五行</strong><br/>
+        八字：<span class="mono">${baziInfo.bazi.join(" ")}</span><br/>
+        五行向量：${wxLine}
+      </div>
+    `;
+  }
+
+  const archBars = renderTopBars(finalArch, ARCHETYPE_NAMES, 8);
   const typeLabelMap = Object.fromEntries(Object.entries(TYPE_ZH).map(([k,v])=>[k, v+"("+k+")"]));
   const typeBars = renderTopBars(normalize(typeRaw), typeLabelMap, 8);
 
@@ -336,8 +466,9 @@ document.getElementById("calcBtn").addEventListener("click", () => {
     ${nameLine}<br/>
     ${pills}
     ${explain}
+    ${baziBlock}
     <div class="sep"></div>
-    <div class="small"><strong>原型得分（Top8）</strong></div>
+    <div class="small"><strong>FinalArchetype（Top8）</strong></div>
     ${archBars}
     <div class="sep"></div>
     <div class="small"><strong>属性投影（Top8）</strong></div>
@@ -355,7 +486,8 @@ document.getElementById("resetBtn").addEventListener("click", () => {
   renderQuiz();
   document.getElementById("result").innerHTML = "";
   document.getElementById("msg").textContent = "";
-});
+  document.getElementById("birthDate").value = "";
+  document.getElementById("birthTime").value = "";});
 
 poolStats();
 renderQuiz();
