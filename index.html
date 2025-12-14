@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>宝可梦性格测试（答题 + 生日八字）</title>
+<title>宝可梦性格测试（答题 + 生日八字） v12.1</title>
 <style>
   :root {
     --bg:#0b0f17; --card:#121a27; --muted:#94a3b8; --text:#e5e7eb; --line:#243244;
@@ -50,7 +50,7 @@
 <div class="wrap">
   <div class="top">
     <div class="title card">
-      <h1>宝可梦性格测试（答题 + 生日八字）</h1>
+      <h1>宝可梦性格测试（答题 + 生日八字） <span class=\"mono\">v12.1</span></h1>
       <div class="sub">
         你只需要：<strong>回答10题</strong> + <strong>填写生日（可选时间）</strong>。<br/>
         系统将“显性行为”（答题）作为主导，“命格底色”（八字五行）作为校准，并在最终属性池内做细分排序，输出唯一初始形态宝可梦。
@@ -113,51 +113,25 @@
 </div>
 
 <script>
+const APP_VERSION = \"v12.1\";
+
+<script>
 
 
-// === Boot self-check (v14) ===
+// === Boot self-check (v10) ===
 (function(){
   const $ = (id)=>document.getElementById(id);
-  async function getSnippet(lineno){
-    try{
-      const res = await fetch(location.href, { cache: "no-store" });
-      const txt = await res.text();
-      const lines = txt.split(/?
-/);
-      const L = Math.max(1, lineno|0);
-      const from = Math.max(1, L-3), to = Math.min(lines.length, L+3);
-      let out = [];
-      for(let i=from;i<=to;i++){
-        out.push((i===L?"> ":"  ")+String(i).padStart(4," ")+": "+lines[i-1]);
-      }
-      return out.join("
-");
-    }catch(e){ return ""; }
-  }
-  async function showFatal(title, err, meta){
+  function showFatal(title, err){
     const box = $('msg');
     const stats = $('poolStats');
     const detail = (err && (err.stack || err.message)) ? (err.stack || err.message) : String(err||'');
-    const loc = meta && (meta.filename || meta.lineno) ? `${meta.filename||''}:${meta.lineno||''}:${meta.colno||''}` : "";
-    const snippet = meta && meta.lineno ? await getSnippet(meta.lineno) : "";
-    const safe = (s)=>String(s||"").replace(/</g,"&lt;");
-    if (box) box.textContent = title + (loc ? (" | " + loc) : "");
-    if (stats) stats.innerHTML =
-      `<span class="warn">初始化失败：</span><span class="mono">${safe(title)}</span><br/>`+
-      (loc?`<span class="mono">${safe(loc)}</span><br/>`:"")+
-      (detail?`<pre class="mono" style="white-space:pre-wrap;margin:8px 0 0 0;">${safe(detail)}</pre>`:"")+
-      (snippet?`<div class="sep"></div><div class="small"><strong>报错附近代码</strong><pre class="mono" style="white-space:pre-wrap;margin:6px 0 0 0;">${safe(snippet)}</pre></div>`:"");
-    window.__BOOT_FATAL__ = { title, detail, loc, snippet };
+    if (box) box.textContent = title + (detail ? (" | " + detail) : "");
+    if (stats) stats.innerHTML = `<span class="warn">初始化失败：</span><span class="mono">${title.replace(/</g,'&lt;')}</span><br/><span class="mono">${(detail||'').replace(/</g,'&lt;')}</span>`;
+    window.__BOOT_FATAL__ = { title, detail };
   }
   window.__showFatal = showFatal;
-
-  window.addEventListener('error', (e)=>{
-    // e: ErrorEvent
-    showFatal('脚本运行错误', e.error || e.message || e, { filename:e.filename, lineno:e.lineno, colno:e.colno });
-  });
-  window.addEventListener('unhandledrejection', (e)=>{
-    showFatal('异步错误', e.reason || e);
-  });
+  window.addEventListener('error', (e)=>showFatal('脚本运行错误', e.error || e.message || e));
+  window.addEventListener('unhandledrejection', (e)=>showFatal('异步错误', e.reason || e));
 })();
 
 const CONFIG = {
@@ -719,13 +693,17 @@ if (baziInfo && !baziInfo.error) {
         const displayName = r.zh ? `${r.zh}` : r.identifier;
         const subName = r.zh ? `${r.identifier}` : "";
         document.getElementById("result").innerHTML = `
-          <div style="font-size:18px;font-weight:900;">${displayName} <span class="mono">${subName? "("+subName+")":""}</span></div>
+          <div style="font-size:18px;font-weight:900;">${displayName} <span class="mono">${subName ? "(" + subName + ")" : ""}</span></div>
           <div class="sep"></div>
           <span class="pill">模式：主/副属性（严格）→ 回退</span>
           <span class="pill">主属性：${CONFIG.type_zh[primaryType]}（${primaryType}）</span>
           <span class="pill">副属性：${CONFIG.type_zh[secondaryWanted]}（${secondaryWanted}）</span>
           <div class="sep"></div>
-          <div class="small"><strong>回退说明</strong><br/>在当前数据库中，主属性为${CONFIG.type_zh[primaryType]}且进化链可达副属性${CONFIG.type_zh[secondaryWanted]}的候选为空。系统为保证输出稳定：<br/>• 仍保留你确定的副属性（不改写）<br/>• 宝可梦选择回退为“仅按主属性池确定性落点”。</div>
+          <div class="small"><strong>回退说明</strong><br/>
+            在当前数据库中，主属性为${CONFIG.type_zh[primaryType]}且进化链可达副属性${CONFIG.type_zh[secondaryWanted]}的候选为空。系统为保证输出稳定：<br/>
+            • 仍保留你确定的副属性（不改写）<br/>
+            • 宝可梦选择回退为“仅按主属性池确定性落点”。
+          </div>
           <div class="sep"></div>
           <div class="small"><strong>主属性生成原因</strong><br/>${primaryReason}</div>
           <div class="sep"></div>
