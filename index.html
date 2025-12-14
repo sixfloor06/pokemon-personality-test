@@ -392,6 +392,10 @@ function scoreAndRankCandidates(primaryType, secondaryWantedTitle, top1, top2k, 
   const scored = [];
   for (let idx=0; idx<pool.length; idx++) {
     const [pid, identifier, zh] = pool[idx];
+    // Enforce: candidate's BASE primary type must equal selected primaryType (day-pillar anchored)
+    const bt = BASE_TO_BASE_TYPES[identifier];
+    if (!bt || !bt.length) continue;
+    if (toTitle(bt[0]) !== primaryType) continue;
     if (mode === "pure") {
       // pure mode: base itself must be mono-type and equal to primaryType
       if (!BASE_IS_MONO[identifier]) continue;
@@ -531,6 +535,7 @@ document.getElementById("calcBtn").addEventListener("click", () => {
     <div class="sep"></div>
     <span class="pill">模式：${mode==="pure" ? "纯属性" : "主/副属性"}</span>
     <span class="pill">主属性：${CONFIG.type_zh[primaryType]}（${primaryType}）</span>
+    <span class="pill">宝可梦主属性校验：${(BASE_TO_BASE_TYPES[picked.identifier] && BASE_TO_BASE_TYPES[picked.identifier][0]) ? (CONFIG.type_zh[toTitle(BASE_TO_BASE_TYPES[picked.identifier][0])] + "（" + toTitle(BASE_TO_BASE_TYPES[picked.identifier][0]) + "）") : "未知"}</span>
     <span class="pill">副属性：${displaySecondary}</span>
     <span class="pill">Top 原型：${ARCHETYPE_NAMES[top1]} / ${ARCHETYPE_NAMES[top2k]||"—"}</span>
     <span class="pill">日柱五行：${dayWx? (CONFIG.wuxing_zh[dayWx] + "（" + dayWx + "）") : "未填写生日"}</span>
