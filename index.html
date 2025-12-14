@@ -504,26 +504,27 @@ document.getElementById("calcBtn").addEventListener("click", () => {
     return;
   }
 
-  // Decide displayed secondary for picked (only dual)
-  let displaySecondary = "—";
+  // Decide displayed secondary (always show inclination; reachable shown separately)
+  const secondaryInclination = secondaryWanted ? `${CONFIG.type_zh[secondaryWanted]}（${secondaryWanted}）` : `${CONFIG.type_zh[primaryType]}（${primaryType}）`;
+
+  let reachableSecondaryText = "单属性链（不出现第二属性）";
   if (mode === "dual") {
     const extraLower = picked.extraLower || [];
     if (secondaryWanted && extraLower.includes(secondaryWanted.toLowerCase())) {
-      displaySecondary = `${CONFIG.type_zh[secondaryWanted]}（${secondaryWanted}）`;
+      reachableSecondaryText = `${CONFIG.type_zh[secondaryWanted]}（${secondaryWanted}）`;
     } else if (extraLower.length) {
-      // fallback: choose the highest-scoring type from extras based on blended main
+      // fallback: choose the highest-scoring reachable type from extras
       const extrasTitle = extraLower.map(toTitle);
       let best = extrasTitle[0], bestV = -Infinity;
       for (const t of extrasTitle) {
         const v = blendedMain.finalTypeScore[t] || 0;
         if (v > bestV) { bestV = v; best = t; }
       }
-      displaySecondary = `${CONFIG.type_zh[best]}（${best}）`;
-    } else {
-      displaySecondary = "无（进化链仍为单属性）";
+      reachableSecondaryText = `${CONFIG.type_zh[best]}（${best}）`;
     }
   } else {
-    displaySecondary = "无（主副同源 → 纯属性模式）";
+    // pure mode: inclination == primary by definition
+    reachableSecondaryText = "纯属性模式（仅初始单属性）";
   }
 
   const displayName = picked.zh ? `${picked.zh}` : picked.identifier;
@@ -536,7 +537,8 @@ document.getElementById("calcBtn").addEventListener("click", () => {
     <span class="pill">模式：${mode==="pure" ? "纯属性" : "主/副属性"}</span>
     <span class="pill">主属性：${CONFIG.type_zh[primaryType]}（${primaryType}）</span>
     <span class="pill">宝可梦主属性校验：${(BASE_TO_BASE_TYPES[picked.identifier] && BASE_TO_BASE_TYPES[picked.identifier][0]) ? (CONFIG.type_zh[toTitle(BASE_TO_BASE_TYPES[picked.identifier][0])] + "（" + toTitle(BASE_TO_BASE_TYPES[picked.identifier][0]) + "）") : "未知"}</span>
-    <span class="pill">副属性：${displaySecondary}</span>
+    <span class="pill">副属性倾向：${secondaryInclination}</span>
+    <span class="pill">进化链副属性：${reachableSecondaryText}</span>
     <span class="pill">Top 原型：${ARCHETYPE_NAMES[top1]} / ${ARCHETYPE_NAMES[top2k]||"—"}</span>
     <span class="pill">日柱五行：${dayWx? (CONFIG.wuxing_zh[dayWx] + "（" + dayWx + "）") : "未填写生日"}</span>
     <div class="sep"></div>
