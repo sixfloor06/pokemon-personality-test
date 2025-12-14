@@ -433,7 +433,7 @@ function scoreAndRankCandidates(primaryType, secondaryFixedTitle, top1, top2k, d
   return scored;
 }
 
-document.getElementById("calcBtn")).addEventListener("click", () => {
+document.getElementById("calcBtn").addEventListener("click", () => {
   const ans = getAnswers();
   if (!ans) {
     document.getElementById("msg").textContent = "还差几题没选完：请把 10 题都选上再生成结果。";
